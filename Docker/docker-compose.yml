@@ -1,0 +1,42 @@
+services:
+  cuda-ros-dev:
+    image: cuda-ros-dev:11.8-noetic-conda
+    container_name: cuda-ros-dev
+    tty: true
+    working_dir: /
+    user: dev
+    build:
+      context: .
+      dockerfile: cuda11.8-noetic/Dockerfile.dev
+      args:
+        - GID=${GID:-1001}
+        - UID=${UID:-1001}
+        - POST_TAG=${POST_TAG:-dev}
+        - BASE_IMAGE=cuda-ros:11.8-noetic
+        - USERNAME=${USERNAME:-default}
+        - PASSWORD=${PASSWORD:-default}
+    # env_file:
+    #   - ./docker/.env.build
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - /tmp/.docker.xauth:/tmp/.docker.xauth
+      # - .:/auto4d/src/auto4d-ground
+      - docker_mount_data:/projects/datas
+      # - ${HOME}/.hxbasic:/home/ros/.hxbasic
+      # - /root/.hxbasic:/root/.hxbasic
+    devices:
+      - /dev/dri:/dev/dri
+    environment:
+      - GID=${GID:-1000}
+      - UID=${UID:-1000}
+      - DISPLAY=unix$DISPLAY
+      - QT_X11_NO_MITSHM=1
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      #      - NVIDIA_REQUIRE_CUDA=cuda>=9.0
+      - XAUTHORITY=/tmp/.docker.xauth
+
+volumes:
+  docker_mount_data:
+    name: docker_mount_data
+    external: true

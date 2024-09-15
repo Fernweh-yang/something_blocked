@@ -1,0 +1,6 @@
+pydantic~=1.10.4
+loguru~=0.7.0
+scipy~=1.10.1
+pandas~=2.0.3
+scikit-spatial~=7.0.0
+pyransac3d~=0.6.0

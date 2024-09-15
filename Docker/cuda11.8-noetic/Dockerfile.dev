@@ -1,0 +1,142 @@
+ARG BASE_IMAGE=cuda-ros:11.8-noetic
+FROM ${BASE_IMAGE} AS dev-base
+
+RUN sed -i 's/archive.ubuntu.com/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list
+
+ENV TZ=Asia/Shanghai DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && \
+    apt-get install -y tzdata vim git zsh build-essential sudo apt-utils wget curl gdb gdbserver tree tig && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN ln -fs /usr/share/zoneinfo/${TZ} /etc/localtime \
+    && echo ${TZ} > /etc/timezone \
+    && dpkg-reconfigure --frontend noninteractive tzdata
+
+RUN apt-get update -y && \
+    apt-get install bison flex apt-transport-https ca-certificates gnupg software-properties-common -y && \
+    rm -rf /var/lib/apt/lists/*
+
+
+RUN apt-get update -y && \
+    apt-get install -y libeigen3-dev libpcap-dev python3 python3-dev python3-pip libopencv-dev python3-opencv \
+                       python3-venv python3-wheel libgoogle-glog-dev libgflags-dev libatlas-base-dev \
+                       libsuitesparse-dev mesa-utils libgl1-mesa-glx libgl1-mesa-dri libomp-dev libyaml-cpp-dev \
+                       libboost-all-dev libpcl-dev cmake && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update && \
+    apt-get install -y libgtest-dev libtbb-dev libglfw3-dev liblz4-dev libbz2-dev libblas-dev liblapack-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update && \
+apt-get install -y ros-noetic-jsk-recognition-msgs \
+                    ros-noetic-jsk-rqt-plugins \
+                    ros-noetic-jsk-rviz-plugins \
+                    ros-noetic-jsk-visualization \
+                    ros-noetic-grid-map \
+                    ros-noetic-grid-map-core \
+                    ros-noetic-grid-map-msgs
+
+ENV PATH /opt/conda/bin:$PATH
+
+FROM ${BASE_IMAGE} AS conda-base
+RUN apt-get update && apt-get install -y wget
+# Install Miniconda on x86 or ARM platforms
+ARG PYTHON_VERSION=3.8
+RUN wget "https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-$(uname -m).sh" -O ~/miniconda.sh --no-check-certificate && \
+    chmod +x ~/miniconda.sh && \
+    bash ~/miniconda.sh -b -p /opt/conda
+
+RUN /opt/conda/bin/conda config --add channels https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/free/
+RUN /opt/conda/bin/conda config --add channels https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main/
+RUN /opt/conda/bin/conda config --add channels https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/pytorch/
+RUN /opt/conda/bin/conda config --add channels https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/pytorch/linux-64/
+RUN /opt/conda/bin/conda config --set show_channel_urls yes
+
+ENV PATH /opt/conda/bin:$PATH
+# RUN pip3 config set global.index-url http://mirrors.aliyun.com/pypi/simple
+# RUN pip3 config set install.trusted-host mirrors.aliyun.com
+
+FROM dev-base AS build-env
+
+COPY install/install_pybind11.sh /opt/install_pybind11.sh
+RUN bash /opt/install_pybind11.sh
+
+COPY install/install_spdlog.sh /opt/
+RUN /opt/install_spdlog.sh
+
+COPY install/install_ohmyzsh.sh /opt/
+RUN CHSH=yes RUNZSH=yes KEEP_ZSHRC=yes sh /opt/install_ohmyzsh.sh
+
+
+FROM conda-base AS conda-install-env
+
+RUN apt-get update && apt-get install -y git
+
+RUN /opt/conda/bin/conda create -n dev python=3.8 -y && \
+    /opt/conda/bin/conda init bash && \
+    /opt/conda/bin/conda init zsh
+ENV PATH /opt/conda/envs/dev/bin:$PATH
+ENV CONDA_DEFAULT_ENV dev
+
+
+COPY scripts/requirements.txt /opt/
+RUN pip3 install -r /opt/requirements.txt
+RUN pip3 install pydantic loguru scipy
+RUN pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+RUN pip3 install catkin_pkg empy
+
+FROM build-env AS official-env
+
+# add user
+ARG USER=dev
+ARG PASSWD=dev
+ARG UID=1000
+ARG GID=1000
+
+ENV _USER $USER
+ENV _PASSWD $PASSWD
+ENV _UID $UID
+ENV _GID $GID
+
+RUN useradd --create-home -m $_USER                                && \
+    adduser $_USER sudo                                            && \
+    echo "$_USER:$_PASSWD" | chpasswd                              && \
+    usermod --shell /bin/bash $_USER                               && \
+    usermod -aG sudo $_USER                                        && \
+    echo "$_USER ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers.d/$_USER && \
+    chmod 0440 /etc/sudoers.d/$_USER                               && \
+    usermod  --uid $_UID $_USER                                    && \
+    groupmod --gid $_GID $_USER
+
+COPY --from=conda-install-env /opt/conda /opt/conda
+RUN chown -R $_USER:$_USER /opt/conda
+
+RUN mkdir -p /workspace/src/test_everything && chown -R $_USER:$_USER /workspace
+
+ENV PATH /opt/conda/envs/dev/bin:$PATH
+ENV CONDA_DEFAULT_ENV dev
+RUN echo "conda activate dev" >> /root/.bashrc && \
+    echo "conda activate dev" >> /root/.zshrc
+
+RUN echo "source '/opt/ros/noetic/setup.bash' -- " >> /root/.bashrc && \
+    echo "source '/opt/ros/noetic/setup.zsh' -- " >> /root/.zshrc
+
+RUN /opt/conda/bin/conda config --add channels https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main/
+RUN /opt/conda/bin/conda config --add channels https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/free/
+RUN /opt/conda/bin/conda config --add channels https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/pytorch/
+RUN /opt/conda/bin/conda config --add channels https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/pytorch/linux-64/
+RUN /opt/conda/bin/conda config --set show_channel_urls yes
+
+USER $_USER
+ENV PATH /opt/conda/envs/dev/bin:$PATH
+ENV CONDA_DEFAULT_ENV dev
+RUN CHSH=yes RUNZSH=yes KEEP_ZSHRC=yes sh /opt/install_ohmyzsh.sh
+RUN echo "source '/opt/ros/noetic/setup.bash' -- " >> /home/$_USER/.bashrc && \
+    echo "source '/opt/ros/noetic/setup.zsh' -- " >> /home/$_USER/.zshrc &&\
+    echo "source /opt/conda/etc/profile.d/conda.sh" >> ~/.zshrc
+
+ENV PATH /opt/conda/bin:$PATH
+# RUN /opt/conda/bin/conda init bash
+# RUN /opt/conda/bin/conda init zsh
