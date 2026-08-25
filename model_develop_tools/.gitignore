@@ -1,0 +1,44 @@
+# ===== Datasets =====
+# data/
+# DRIVE/
+# CHASEDB1/
+# mnist/
+# MNIST/
+
+# ===== Model weights / checkpoints =====
+model_pth/
+save_weights/
+*.pth
+*.pt
+*.onnx
+
+# ===== Training outputs =====
+results/
+runs/
+tensorboard/
+events.out.tfevents.*
+
+# ===== Archives (GitHub 100MB file limit) =====
+*.zip
+*.tar
+*.tar.gz
+*.7z
+
+# ===== Published papers (copyright, do not redistribute) =====
+paper/
+*.pdf
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+*.egg-info/
+build/
+dist/
+
+# ===== IDE =====
+.idea/
+.vscode/
+
+# ===== Logs =====
+*.log
